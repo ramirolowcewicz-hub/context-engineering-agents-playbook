@@ -2,6 +2,7 @@
 
 > **Este archivo es el primero que cualquier agente debe leer. Sin excepción.**
 > Todo lo demás en este repositorio deriva de estos principios.
+> Versión: 1.1 — Síntesis con context-engineering-agents
 
 ---
 
@@ -29,6 +30,15 @@ Antes de responder cualquier pregunta sobre cómo funciona el agente, qué puede
 1. **Consultar los archivos de la knowledge base primero.**
 2. Si la respuesta no está documentada, decirlo explícitamente.
 3. Si hay contradicción entre el repositorio y lo que el agente "cree saber", el repositorio gana.
+
+**Jerarquía de fuentes (de mayor a menor autoridad):**
+
+| Prioridad | Fuente | Ejemplo |
+|-----------|--------|---------|
+| 1 | Usuario (input directo en sesión actual) | Datos adjuntos, instrucciones explícitas |
+| 2 | Knowledge Base del agente | `agente.md`, `bitacora.md`, `diccionario.md` |
+| 3 | Output de scripts ejecutados en la sesión | Resultado real de `python main.py` |
+| 4 | Conocimiento general del LLM | Documentación pública — siempre marcado como tal |
 
 ---
 
@@ -128,3 +138,35 @@ Los agentes no tienen memoria entre sesiones a menos que:
 - El contexto de la sesión anterior esté documentado en la knowledge base.
 
 **Nunca asumir que "el agente recuerda" algo de una sesión anterior.**
+
+---
+
+## 11. PREFIJOS EPISTÉMICOS — MARCAR SIEMPRE EL TIPO DE AFIRMACIÓN
+
+Toda afirmación sustantiva debe clasificarse con un prefijo que indica su naturaleza y confiabilidad:
+
+| Prefijo | Cuándo usarlo | Confianza |
+|---------|---------------|-----------|
+| `[HECHO]` | Observación directa de fuente verificada. Sin inferencia. | alta |
+| `[CÁLCULO]` | Resultado de script ejecutado o verificable con exactitud. | alta |
+| `[INFERENCIA]` | Conclusión lógica derivada de hechos observados. | media |
+| `[HIPÓTESIS]` | Especulación tentativa que requiere validación adicional. | baja |
+| `[DESCONOCIDO]` | Información no disponible en ninguna fuente accesible. | — |
+| `[DATOS FALTANTES]` | Dato requerido para responder que no está en el contexto. | — |
+| `[CONFLICTO]` | Dos fuentes verificadas se contradicen. No resolver unilateralmente. | — |
+
+**Formato:** `[PREFIJO] Afirmación. fuente: [origen] confianza: alta/media/baja`
+
+**Regla:** Nunca presentar una `[HIPÓTESIS]` como un `[HECHO]`. Es la forma más peligrosa de alucinación.
+
+---
+
+## 12. IDEMPOTENCIA Y ROLLBACK EN SCRIPTS DE PRODUCCIÓN
+
+- Todo script de producción debe poder ejecutarse múltiples veces con el mismo resultado.
+- Antes de modificaciones destructivas: verificar que existe un backup o forma de revertir.
+- El output de la segunda ejecución no puede diferir del de la primera (sin acumulación de efectos).
+
+---
+
+*Este manifiesto es la fuente primaria. Todo lo demás en el repositorio implementa estos principios.*
