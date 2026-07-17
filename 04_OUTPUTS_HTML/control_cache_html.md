@@ -1,6 +1,6 @@
 # Control de Caché en Outputs HTML
 
-> Este es uno de los problemas más frecuentes y frustrantes al trabajar con reportes HTML generados por agentes. Este archivo lo resuelve de raíz.
+> Versión: 1.1 — Agrega self-contained (sin CDNs), metadatos de versión y accesibilidad.
 
 ---
 
@@ -9,7 +9,7 @@
 Cuando un agente genera un archivo HTML con un nombre fijo (ej: `reporte.html`) y el usuario lo abre en el browser:
 
 1. El browser cachéa el archivo.
-2. El agente genera una nueva versión del archivo con el mismo nombre.
+2. El agente genera una nueva versión con el mismo nombre.
 3. El usuario abre el archivo nuevamente.
 4. **El browser sirve la versión cacheada anterior, no la nueva.**
 5. El usuario no ve los cambios y cree que el agente no los hizo.
@@ -18,148 +18,189 @@ Esto genera confusión, iteraciones inútiles y pérdida de confianza en el agen
 
 ---
 
-## La Solución Canónica: Timestamp en el Nombre del Archivo
+## La Solución Canónica: Timestamp UTC en el Nombre
 
-**Regla absoluta:** Todo archivo de output HTML (y cualquier output que el usuario va a abrir en un browser) debe incluir fecha y hora de creación en el nombre.
+**Regla absoluta:** Todo output HTML debe incluir timestamp en el nombre.
 
 ```python
-from datetime import datetime
+from datetime import datetime, timezone
 
-# CORRECTO:
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-nombre_output = f"reporte_{timestamp}.html"  # ej: reporte_20260716_220606.html
+# CORRECTO — UTC ISO 8601 compacto (garantiza unicidad entre zonas horarias):
+ts = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
+nombre = f"reporte_ventas.{ts}.html"  # ej: reporte_ventas.20260716T220606.html
 
-# INCORRECTO (nunca hacer esto para outputs que el usuario abre):
-nombre_output = "reporte.html"              # Se cachea
-nombre_output = "reporte_julio.html"        # Sigue cacheando si se regenera el mismo día
-nombre_output = "reporte_20260716.html"     # Caché problemático si hay más de una versión por día
+# También aceptable (timestamp local):
+ts_local = datetime.now().strftime('%Y%m%d_%H%M%S')
+nombre = f"reporte_ventas_{ts_local}.html"
+
+# NUNCA (se cachea):
+nombre = "reporte.html"
+nombre = "reporte_julio.html"
+nombre = "reporte_20260716.html"  # Sigue cacheando si hay > 1 versión por día
 ```
 
 ---
 
-## Patrón de Naming Completo
+## Usar el Script Canónico
 
-```python
-from datetime import datetime
-from pathlib import Path
+```bash
+# Usar generate_artifact_name.py del playbook:
+python3 scripts/generate_artifact_name.py html reporte_ventas
+# Output: reporte-ventas.20260716T220606.html
 
-def generar_nombre_output(prefijo: str, extension: str = 'html') -> str:
-    """
-    Genera un nombre de archivo con timestamp que garantiza unicidad.
-    
-    Ejemplo: generar_nombre_output('reporte_ventas') 
-    Output:  'reporte_ventas_20260716_220606.html'
-    """
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    return f"{prefijo}_{ts}.{extension}"
+# Con directorio:
+python3 scripts/generate_artifact_name.py html reporte_ventas --output-dir ./outputs
 
-# Uso:
-nombre = generar_nombre_output('analisis_canales')
-path_output = Path('outputs') / nombre
-print(f"Generando: {path_output}")
+# Ver los meta tags a incluir en el <head>:
+python3 scripts/generate_artifact_name.py html reporte_ventas --meta-tags
 ```
 
 ---
 
-## Meta-Tags Anti-Caché en el HTML
-
-Además del naming con timestamp, incluir estos meta-tags dentro del `<head>` del HTML generado:
+## Estructura HTML Mínima Obligatoria
 
 ```html
+<!DOCTYPE html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
-  <!-- Anti-caché: fuerza al browser a no cachear este archivo -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- TÍTULO con fecha visible — permite identificar la versión sin abrir el archivo -->
+  <title>Reporte Ventas — 16/07/2026 22:06:06 UTC</title>
+
+  <!-- ANTI-CACHÉ: fuerza al browser a no cachear este archivo -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  
-  <!-- Siempre incluir la fecha de generación visible en el título -->
-  <title>Reporte Ventas — Generado: {timestamp_legible}</title>
+
+  <!-- METADATOS DE VERSIÓN: trazabilidad del artefacto -->
+  <meta name="generator" content="nombre-agente/1.0">
+  <meta name="artifact-version" content="1.0">
+  <meta name="artifact-id" content="reporte-ventas.20260716T220606.html">
+  <meta name="created" content="2026-07-16T22:06:06Z">
+
+  <!-- CSS INLINE — SIN CDNs EXTERNOS (self-contained) -->
+  <style>
+    /* Todo el CSS va aquí, inline. NUNCA <link href="https://..."> */
+    body { font-family: -apple-system, sans-serif; margin: 0; }
+  </style>
 </head>
+<body>
+  <!-- H1 VISIBLE con fecha — el usuario ve inmediatamente qué versión es -->
+  <h1>Reporte Ventas — 16/07/2026 22:06:06 UTC</h1>
+
+  <!-- JS INLINE — SIN CDNs EXTERNOS -->
+  <script>
+    /* Todo el JavaScript va aquí, inline. NUNCA <script src="https://..."> */
+  </script>
+</body>
+</html>
 ```
 
 ---
 
-## Timestamp Visible en el Cuerpo del HTML
+## Regla Self-Contained (Sin CDNs Externos)
 
-El archivo HTML debe mostrar claramente cuándo fue generado. Esto permite al usuario verificar que está viendo la versión correcta:
+**Todo HTML generado por un agente debe ser completamente autocontenido.**
+
+```html
+<!-- ❌ NUNCA hacer esto: -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5...">
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+<!-- ✅ Siempre: CSS y JS inline o embebido -->
+<style>
+  /* El CSS completo aquí */
+</style>
+<script>
+  /* El JS completo aquí */
+</script>
+```
+
+**Por qué:** Un HTML con CDNs externos deja de funcionar sin conexión a internet y puede tener problemas de versioning cuando cambia el CDN.
+
+---
+
+## Timestamp Visible en el Cuerpo
 
 ```python
-from datetime import datetime
+from datetime import datetime, timezone
 
-timestamp_legible = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+now = datetime.now(timezone.utc)
+ts_archivo = now.strftime('%Y%m%dT%H%M%S')
+ts_legible = now.strftime('%d/%m/%Y %H:%M:%S UTC')
+nombre_archivo = f"reporte_ventas.{ts_archivo}.html"
 
-html_header = f"""
-<div class="metadata" style="
-    background: #f0f0f0; 
-    padding: 8px 16px; 
-    font-size: 12px; 
-    color: #666;
-    border-bottom: 1px solid #ddd;
-    font-family: monospace;
-">
-    ⏱️ Reporte generado el: <strong>{timestamp_legible}</strong> &nbsp;|
-    Filas procesadas: <strong>{filas_procesadas:,}</strong> &nbsp;|
-    Archivo: <strong>{nombre_output}</strong>
+header_metadata = f"""
+<div style="background:#1a1a2e;color:#a0a0c0;padding:8px 16px;font-size:12px;font-family:monospace;">
+    ⏱️ Generado: <strong style="color:white">{ts_legible}</strong> &nbsp;|
+    Archivo: <strong style="color:white">{nombre_archivo}</strong> &nbsp;|
+    Filas: <strong style="color:white">{filas_procesadas:,}</strong> &nbsp;|
+    <span style="background:#27ae60;color:white;padding:2px 6px;border-radius:3px">CALCULADO POR SCRIPT</span>
 </div>
 """
 ```
 
 ---
 
-## Limpieza de Outputs Anteriores (Opcional pero Recomendado)
+## Cómo Informar al Usuario (Obligatorio)
+
+Al terminar de generar un HTML, **siempre** comunicar:
+
+```
+✅ Output generado:
+• Archivo: reporte_ventas.20260716T220606.html
+• Generado: 16/07/2026 22:06:06 UTC
+• Tamaño: 45 KB
+• Filas procesadas: 48,293
+
+⚠️  Si tenés abierta una versión anterior:
+   → Abrí el nuevo archivo por su nombre EXACTO
+   → No recargues el anterior (puede estar cacheado)
+```
+
+---
+
+## Limpieza de Versiones Anteriores (Opcional)
 
 ```python
-import glob
-import os
-from pathlib import Path
+import glob, os
 
-def limpiar_outputs_anteriores(patron: str, directorio: str = '.', mantener_ultimos: int = 5):
-    """
-    Mantiene solo los N archivos más recientes que coincidan con el patrón.
-    Evita acumulación de versiones antiguas.
-    
-    Ejemplo: limpiar_outputs_anteriores('reporte_ventas_*.html')
-    """
+def limpiar_outputs_anteriores(patron: str, directorio: str = 'outputs', mantener_n: int = 5):
+    """Mantiene solo los N archivos más recientes."""
     archivos = sorted(
         glob.glob(os.path.join(directorio, patron)),
-        key=os.path.getmtime,
-        reverse=True
+        key=os.path.getmtime, reverse=True
     )
-    
-    if len(archivos) > mantener_ultimos:
-        para_borrar = archivos[mantener_ultimos:]
-        for archivo in para_borrar:
-            os.remove(archivo)
-            print(f"  Eliminado: {archivo}")
-        print(f"  Mantenidos: {mantener_ultimos} archivos más recientes")
+    for archivo in archivos[mantener_n:]:
+        os.remove(archivo)
+        print(f"  Eliminado: {archivo}")
+    if archivos[mantener_n:]:
+        print(f"  Mantenidos: {mantener_n} archivos más recientes")
+
+# Uso: limpiar_outputs_anteriores('reporte_ventas.*.html')
 ```
 
 ---
 
-## Checklist de Output HTML
+## Checklist de QA — Output HTML
 
 ```
-☐ El nombre del archivo incluye timestamp (YYYYMMDD_HHMMSS)
-☐ El <head> incluye meta-tags anti-caché
-☐ El <title> incluye fecha y hora de generación
-☐ El cuerpo muestra visiblemente cuándo fue generado
-☐ El agente imprime en consola el nombre exacto del archivo generado
-☐ El agente informa al usuario: "Abrir el archivo [NOMBRE EXACTO] para ver los cambios"
+☐ Nombre del archivo incluye timestamp (YYYYMMDDTHHMMSS o YYYYMMDD_HHMMSS)
+☐ <title> incluye fecha y hora legible
+☐ <h1> visible incluye fecha y hora
+☐ Meta tags anti-caché presentes (Cache-Control, Pragma, Expires)
+☐ Meta tags de versión presentes (generator, artifact-id, created)
+☐ SIN CDNs externos (no hay <link href="https://..."> ni <script src="https://...">)
+☐ El agente imprimió en consola el nombre EXACTO del archivo
+☐ El agente informó al usuario: "Abrir [NOMBRE EXACTO], no recargar el anterior"
 ```
 
 ---
 
-## Cómo Informar al Usuario
+## Véase también
 
-Al terminar de generar un HTML, el agente siempre debe comunicar:
-
-```
-✅ Output generado exitosamente:
-• Archivo: reporte_ventas_20260716_220606.html
-• Tamaño: 45 KB
-• Generado: 16/07/2026 22:06:06
-
-⚠️  Si tenés abierta una versión anterior en el browser, abrí este nuevo archivo 
-por su nombre exacto. No recargues el anterior (puede estar cacheado).
-```
+- `scripts/generate_artifact_name.py` — Script canónico de naming
+- `04_OUTPUTS_HTML/doble_click_ui.md` — Accesibilidad en elementos interactivos
+- `04_OUTPUTS_HTML/plantilla_html_base.md` — Template HTML completo listo para usar
